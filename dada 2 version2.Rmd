@@ -1,0 +1,211 @@
+---
+title: "R Notebook"
+output: github_document
+---
+
+## **Activation de la librairie DADA2** 
+
+```{r}
+library(dada2)
+```
+Charge le package DADA2, pour traiter les données 16S.
+
+## **Définition du chemin et exploration des fichiers**
+
+```{r}
+path <- "~/tuto_DADA2/MiSeq_SOP" 
+list.files(path)
+```
+Définit le dossier contenant les fichiers FASTQ et affiche son contenu (échantillons, fichiers de référence,...)
+
+
+## **Organisation des fichiers forward et reverse**
+
+```{r}
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+```
+Récupère les fichiers forward (R1) et reverse (R2), et extrait les noms d'échantillons
+
+
+## **Vérification de la qualité des lectures**
+
+Affiche les scores de qualité (Q) pour visualiser la dégradation de la qualité au long des lectures.
+```{r, cache=TRUE}
+plotQualityProfile(fnFs[1:2])
+
+```
+Les lectures ont une bonne qualité jusqu'a environ 240pb.
+```{r, cache=TRUE}
+plotQualityProfile(fnRs[1:2])
+
+```
+Les lectures ont une bonne qualité jusqu'a environ 160pb. 
+
+## **Filtrage et tronquage des séquences**
+
+```{r, cache=TRUE}
+
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+names(filtFs) <- sample.names
+names(filtRs) <- sample.names
+```
+
+```{r, cache=TRUE}
+out <- dada2::filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(240,160),
+              maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
+              compress=TRUE, multithread=FALSE) 
+head(out)
+```
+Tronque les reads à la longueur indiquée (240/160pb), élimine les séquences de mauvaise qualité, retire les "N" et le contrôle PhiX. 
+Les résultats sont stockés dans "out"
+
+
+## **Apprentissage des modèles d'erreurs**
+
+Calcule la probabilité d'erreurs pour chaque base et chaque score Q afin d'alimenter le modèle de débruitage, et de distinguer les erreurs aléatoires des vraies différences.
+
+```{r, cache=TRUE}
+errF <- dada2::learnErrors(filtFs, multithread=TRUE)
+```
+```{r, cache=TRUE}
+errR <- dada2::learnErrors(filtRs, multithread=TRUE)
+```
+```{r, cache=TRUE}
+dada2::plotErrors(errF, nominalQ=TRUE)
+```
+Compare les taux d'erreurs observés et attendus pour vérifier la cohérence du modèle.
+
+
+## **Identification des variantes exactes, Débruitage**
+
+```{r, cache=TRUE}
+dadaFs <- dada2::dada(filtFs, err=errF, multithread=TRUE)
+```
+
+Déduit les vraies séquences (ASV) en corrigeant les erreurs de séquençage dans les fichiers forward.
+
+```{r, cache=TRUE}
+dadaRs <- dada2::dada(filtRs, err=errR, multithread=TRUE)
+```
+
+Déduit les vraies séquences (ASV) en corrigeant les erreurs de séquençage dans les fichiers reverse.
+
+```{r, cache=TRUE}
+dadaFs[[1]]
+```
+Permet de voir combien d’ASV réelles ont été identifiées dans le premier échantillon et avec quels paramètres le modèle DADA2 a fonctionné.
+Cela sert à évaluer évaluer la qualité du débruitage.
+
+
+## **Fusion des lectures Forward et Reverse**
+
+```{r, cache=TRUE}
+mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose=TRUE)
+head(mergers[[1]])
+```
+
+Assemble les lectures forward et reverse en une seule séquence, si le chevauchement est correct.
+
+## **Construction de la table d'ASV**
+
+```{r, cache=TRUE}
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+```
+
+Crée une matrice : lignes = échantillons, colonnes = ASV, valeurs = abondances (nombre de lectures).
+La commande dim() donne ses dimensions.
+
+```{r, cache=TRUE}
+table(nchar(getSequences(seqtab)))
+```
+
+Compte le nombre d’ASV pour chaque longueur de séquence. C'est utile pour détecter d’éventuelles anomalies.
+
+## **Retrait des séquences chimériques**
+
+```{r, cache=TRUE}
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=TRUE, verbose=TRUE)
+dim(seqtab.nochim)
+```
+
+Élimine les séquences chimériques détectées par comparaison entre ASV.
+
+## **Calcul du taux de conservation**
+
+```{r, cache=TRUE}
+sum(seqtab.nochim)/sum(seqtab)
+```
+
+Calcule la proportion de lectures conservées après suppression des chimères.
+
+## **Suivi des pertes à chaque étape**
+
+```{r, cache=TRUE}
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+head(track)
+```
+
+Crée un tableau récapitulatif du nombre de lectures à chaque étape du pipeline.
+
+## **Filtrage des ASV rares**
+
+```{r, cache=TRUE}
+seqtab.filt <- seqtab.nochim[, colSums(seqtab.nochim) > 1]
+
+```
+
+Retire les ASV présents une seule fois.
+
+## **Attribution taxonomique**
+
+```{r, cache=TRUE}
+taxa <- assignTaxonomy(seqtab.nochim, "~/tuto_DADA2/silva_nr99_v138.2_toGenus_trainset.fa.gz?download=1", multithread=3)
+```
+
+Compare les séquences aux bases de données SILVA pour attribuer leur taxonomie jusqu’au genre.
+
+```{r, cache=TRUE}
+taxa.print <- taxa # Removing sequence rownames for display only
+rownames(taxa.print) <- NULL
+head(taxa.print)
+```
+
+Affiche les premières lignes de la table taxonomique (Royaume → Genre).
+
+## **Validation avec la communauté Mock, Evaluation de la performance du pipeline dada2**
+
+```{r, cache=TRUE}
+unqs.mock <- seqtab.nochim["Mock",]
+unqs.mock <- sort(unqs.mock[unqs.mock>0], decreasing=TRUE) # Drop ASVs absent in the Mock
+cat("DADA2 inferred", length(unqs.mock), "sample sequences present in the Mock community.\n")
+```
+
+On extrait la ligne correspondant à l’échantillon nommé "Mock" depuis la table finale seqtab.nochim.
+Cette ligne contient le nombre de lectures pour chaque ASV.
+On garde seulement les ASV présentes dans le mock (> 0 lectures), et
+on trie les séquences par abondance décroissante (les plus fréquentes en premier)
+La commande cat affiche le nombre total d'ASV détectés dans l'échantillon Mock
+
+
+```{r, cache=TRUE}
+mock.ref <- getSequences(file.path(path, "HMP_MOCK.v35.fasta"))
+match.ref <- sum(sapply(names(unqs.mock), function(x) any(grepl(x, mock.ref))))
+cat("Of those,", sum(match.ref), "were exact matches to the expected reference sequences.\n")
+```
+
+La commande récupère les séquences de référence du mock contenues dans le fichier FASTA "HMP_MOCK.v35.fasta".
+Ces séquences sont les vraies composantes connues de la communauté microbienne artificielle.
+Pour chaque ASV détectée (x), on cherche si elle correspond exactement à une séquence du fichier de référence.
+-grepl() teste la présence d’une correspondance.
+-sum() compte combien d’ASV correspondent parfaitement.
+
+DADA2 a trouvé 20 ASV, et les 20 correspondent exactement aux séquences de référence. Cela prouve que le pipeline fonctionne parfaitement.

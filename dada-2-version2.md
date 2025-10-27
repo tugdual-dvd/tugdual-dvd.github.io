@@ -14,7 +14,7 @@ Charge le package DADA2, pour traiter les données 16S.
 ## **Définition du chemin et exploration des fichiers**
 
 ``` r
-path <- "~/tutoriel_ADM/MiSeq_SOP" 
+path <- "~/tuto_DADA2/MiSeq_SOP" 
 list.files(path)
 ```
 
@@ -353,7 +353,7 @@ Retire les ASV présents une seule fois.
 ## **Attribution taxonomique**
 
 ``` r
-taxa <- assignTaxonomy(seqtab.nochim, "~/tutoriel_ADM/silva_nr99_v138.2_toGenus_trainset.fa.gz?download=1", multithread=3)
+taxa <- assignTaxonomy(seqtab.nochim, "~/tuto_DADA2/silva_nr99_v138.2_toGenus_trainset.fa.gz?download=1", multithread=3)
 ```
 
 Compare les séquences aux bases de données SILVA pour attribuer leur
