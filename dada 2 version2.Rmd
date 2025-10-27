@@ -208,4 +208,4 @@ Pour chaque ASV détectée (x), on cherche si elle correspond exactement à une 
 -grepl() teste la présence d’une correspondance.
 -sum() compte combien d’ASV correspondent parfaitement.
 
-DADA2 a trouvé 20 ASV, et les 20 correspondent exactement aux séquences de référence. Cela prouve que le pipeline fonctionne parfaitement.
+DADA2 a trouvé 20 ASV, et les 20 ASV correspondent exactement aux séquences de référence. Cela prouve que le pipeline fonctionne parfaitement.
