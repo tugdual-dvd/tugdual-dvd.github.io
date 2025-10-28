@@ -1,6 +1,9 @@
 R Notebook
 ================
+## **Tugdual Deveaud**
 ## *Tutoriel DADA2*
+Dans cette page de code, nous suivons le tutoriel du pipeline DADA2, pour analyser
+les données contenues dans le fichier MiSeq_SOP.
 ## **Activation de la librairie DADA2**
 
 ``` r
